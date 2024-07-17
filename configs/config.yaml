@@ -1,5 +1,5 @@
-batch_size: 128
-epochs: 80
+bbatch_size: 128
+epochs: 50
 lr: 0.001
 
 device: cuda:0
@@ -9,5 +9,5 @@ use_wandb: False
 
 data_dir: data
 
-# Evaluation
-model_path: 
+patience:   5
+min_delta:  1e-4

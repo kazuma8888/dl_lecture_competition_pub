@@ -2,17 +2,40 @@ import os, sys
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torchvision.transforms import v2
 from torchmetrics import Accuracy
 import hydra
 from omegaconf import DictConfig
 import wandb
 from termcolor import cprint
 from tqdm import tqdm
+from torch.optim.lr_scheduler import OneCycleLR
 
-from src.datasets import ThingsMEGDataset
+from src.datasets import ThingsMEGDataset, PreprocessedMEGDataset
 from src.models import BasicConvClassifier
-from src.utils import set_seed
+from src.models_simple import EnhancedClassifier
+from src.models_not_over import NotOverFittinfgClassifier
+from src.utils import set_seed, standardize_data
 
+
+class EarlyStopping:
+    def __init__(self, patience=5, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+
+    def __call__(self, val_loss):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+        elif val_loss < self.best_loss - self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def run(args: DictConfig):
@@ -27,11 +50,11 @@ def run(args: DictConfig):
     # ------------------
     loader_args = {"batch_size": args.batch_size, "num_workers": args.num_workers}
     
-    train_set = ThingsMEGDataset("train", args.data_dir)
+    train_set = PreprocessedMEGDataset("train", args.data_dir)
     train_loader = torch.utils.data.DataLoader(train_set, shuffle=True, **loader_args)
-    val_set = ThingsMEGDataset("val", args.data_dir)
+    val_set = PreprocessedMEGDataset("val", args.data_dir)
     val_loader = torch.utils.data.DataLoader(val_set, shuffle=False, **loader_args)
-    test_set = ThingsMEGDataset("test", args.data_dir)
+    test_set = PreprocessedMEGDataset("test", args.data_dir)
     test_loader = torch.utils.data.DataLoader(
         test_set, shuffle=False, batch_size=args.batch_size, num_workers=args.num_workers
     )
@@ -39,7 +62,10 @@ def run(args: DictConfig):
     # ------------------
     #       Model
     # ------------------
-    model = BasicConvClassifier(
+    # model = BasicConvClassifier(
+    #     train_set.num_classes, train_set.seq_len, train_set.num_channels
+    # ).to(args.device)
+    model = EnhancedClassifier(
         train_set.num_classes, train_set.seq_len, train_set.num_channels
     ).to(args.device)
 
@@ -47,6 +73,15 @@ def run(args: DictConfig):
     #     Optimizer
     # ------------------
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = OneCycleLR(optimizer,
+                        max_lr=args.lr * 3,
+                        epochs=args.epochs,
+                        steps_per_epoch=len(train_loader))
+
+    # ------------------
+    #  Early Stopping
+    # ------------------
+    early_stopping = EarlyStopping(patience=args.patience, min_delta=args.min_delta)
 
     # ------------------
     #   Start training
@@ -73,6 +108,7 @@ def run(args: DictConfig):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
             acc = accuracy(y_pred, y)
             train_acc.append(acc.item())
@@ -96,8 +132,13 @@ def run(args: DictConfig):
             cprint("New best.", "cyan")
             torch.save(model.state_dict(), os.path.join(logdir, "model_best.pt"))
             max_val_acc = np.mean(val_acc)
+
+        val_loss_mean = np.mean(val_loss)
+        early_stopping(val_loss_mean)
+        if early_stopping.early_stop:
+            cprint("Early stopping", "red")
+            break
             
-    
     # ----------------------------------
     #  Start evaluation with best model
     # ----------------------------------
