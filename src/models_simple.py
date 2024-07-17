@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops.layers.torch import Rearrange
 
-class EnhancedClassifier(nn.Module):
+class SimpleClassifier(nn.Module):
     def __init__(
         self,
         num_classes: int,

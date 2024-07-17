@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 
 from src.datasets import ThingsMEGDataset, PreprocessedMEGDataset
 from src.models import BasicConvClassifier
-from src.models_simple import EnhancedClassifier
+from src.models_simple import SimpleClassifier
 from src.models_not_over import NotOverFittinfgClassifier
 from src.utils import set_seed, standardize_data
 
@@ -65,7 +65,7 @@ def run(args: DictConfig):
     # model = BasicConvClassifier(
     #     train_set.num_classes, train_set.seq_len, train_set.num_channels
     # ).to(args.device)
-    model = EnhancedClassifier(
+    model = SimpleClassifier(
         train_set.num_classes, train_set.seq_len, train_set.num_channels
     ).to(args.device)
 
